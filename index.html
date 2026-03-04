@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>記憶の修復屋 — Memory Restorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1410;
+    --fog: #e8e0d4;
+    --sepia: #c4a882;
+    --rust: #8b4513;
+    --ash: #6b6258;
+    --glow: #f0c060;
+    --truth: #c0392b;
+    --restored: #4a7c59;
+    --ghost: rgba(196,168,130,0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d0b08;
+    color: var(--fog);
+    font-family: 'Noto Serif JP', serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: default;
+  }
+
+  /* ── Grain overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.6;
+  }
+
+  /* ══════════════════════════════════
+     TITLE SCREEN
+  ══════════════════════════════════ */
+  #title-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, #1e160e 0%, #080604 100%);
+    z-index: 100;
+    transition: opacity 1.2s ease, visibility 1.2s;
+  }
+  #title-screen.hidden { opacity: 0; visibility: hidden; }
+
+  .title-symbol {
+    font-size: 4rem;
+    margin-bottom: 2rem;
+    animation: floatSymbol 6s ease-in-out infinite;
+    filter: drop-shadow(0 0 30px var(--glow));
+  }
+
+  @keyframes floatSymbol {
+    0%, 100% { transform: translateY(0) rotate(-3deg); }
+    50% { transform: translateY(-12px) rotate(3deg); }
+  }
+
+  .title-jp {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 300;
+    letter-spacing: 0.4em;
+    color: var(--fog);
+    text-shadow: 0 0 60px rgba(240,192,96,0.4);
+    margin-bottom: 0.5rem;
+  }
+
+  .title-en {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: clamp(0.9rem, 2vw, 1.2rem);
+    letter-spacing: 0.25em;
+    color: var(--sepia);
+    margin-bottom: 3rem;
+  }
+
+  .title-desc {
+    font-size: 0.8rem;
+    color: var(--ash);
+    letter-spacing: 0.15em;
+    line-height: 2.2;
+    text-align: center;
+    max-width: 360px;
+    margin-bottom: 3rem;
+  }
+
+  .btn-start {
+    background: none;
+    border: 1px solid var(--sepia);
+    color: var(--fog);
+    font-family: 'Noto Serif JP', serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.3em;
+    padding: 1rem 3rem;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: color 0.4s, border-color 0.4s;
+  }
+  .btn-start::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--sepia);
+    transform: translateX(-100%);
+    transition: transform 0.4s ease;
+    z-index: -1;
+  }
+  .btn-start:hover { color: var(--ink); border-color: var(--sepia); }
+  .btn-start:hover::before { transform: translateX(0); }
+
+  /* ══════════════════════════════════
+     GAME LAYOUT
+  ══════════════════════════════════ */
+  #game {
+    display: none;
+    min-height: 100vh;
+    padding: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  #game.active { display: block; }
+
+  /* Header */
+  .game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(196,168,130,0.2);
+    margin-bottom: 2.5rem;
+    animation: fadeDown 0.8s ease both;
+  }
+
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .patient-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 2rem;
+    font-style: italic;
+    color: var(--sepia);
+    text-shadow: 0 0 40px rgba(196,168,130,0.3);
+  }
+
+  .case-info {
+    text-align: right;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    color: var(--ash);
+    line-height: 1.8;
+  }
+
+  /* Progress bar */
+  .progress-track {
+    height: 2px;
+    background: rgba(196,168,130,0.12);
+    margin-bottom: 2.5rem;
+    position: relative;
+    animation: fadeDown 0.8s 0.2s ease both;
+    opacity: 0;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--sepia), var(--glow));
+    width: 0%;
+    transition: width 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+    box-shadow: 0 0 12px var(--glow);
+  }
+  .progress-label {
+    position: absolute;
+    right: 0;
+    top: -22px;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: var(--sepia);
+  }
+
+  /* Memory World */
+  .memory-world {
+    position: relative;
+    background: radial-gradient(ellipse at 50% 30%, #1a1208 0%, #060504 70%);
+    border: 1px solid rgba(196,168,130,0.15);
+    min-height: 320px;
+    margin-bottom: 2rem;
+    overflow: hidden;
+    animation: fadeDown 0.8s 0.4s ease both;
+    opacity: 0;
+  }
+
+  .world-scene {
+    padding: 2.5rem;
+    position: relative;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Floating particles */
+  .particle {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: var(--sepia);
+    border-radius: 50%;
+    animation: drift linear infinite;
+    opacity: 0;
+  }
+  @keyframes drift {
+    0% { opacity: 0; transform: translateY(0) translateX(0); }
+    10% { opacity: 0.6; }
+    90% { opacity: 0.3; }
+    100% { opacity: 0; transform: translateY(-180px) translateX(40px); }
+  }
+
+  /* Scene description */
+  .scene-text {
+    font-size: 1rem;
+    line-height: 2.4;
+    letter-spacing: 0.08em;
+    color: rgba(232,224,212,0.55);
+    text-align: center;
+    max-width: 500px;
+    font-style: italic;
+    transition: color 1.5s ease;
+    position: relative;
+    z-index: 2;
+  }
+  .scene-text.vivid { color: rgba(232,224,212,0.95); }
+
+  /* Truth warning overlay */
+  .truth-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(192,57,43,0.12) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 1s ease;
+    pointer-events: none;
+  }
+  .truth-overlay.visible { opacity: 1; }
+
+  /* ── Fragment Cards ── */
+  .fragments-section {
+    animation: fadeDown 0.8s 0.6s ease both;
+    opacity: 0;
+  }
+
+  .section-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.3em;
+    color: var(--ash);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(196,168,130,0.15);
+  }
+
+  .fragments-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .fragment-card {
+    border: 1px solid rgba(196,168,130,0.2);
+    padding: 1.2rem;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.4s, transform 0.3s;
+    background: rgba(20,15,8,0.8);
+  }
+  .fragment-card:hover {
+    border-color: var(--sepia);
+    transform: translateY(-3px);
+  }
+  .fragment-card.placed {
+    border-color: var(--restored);
+    background: rgba(74,124,89,0.08);
+    cursor: default;
+    transform: none;
+    opacity: 0.6;
+  }
+  .fragment-card.truth-fragment {
+    border-color: rgba(192,57,43,0.3);
+  }
+  .fragment-card.truth-fragment:hover {
+    border-color: var(--truth);
+  }
+  .fragment-card.selected {
+    border-color: var(--glow);
+    box-shadow: 0 0 20px rgba(240,192,96,0.15);
+  }
+
+  .fragment-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--ghost);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .fragment-card:hover::before { opacity: 1; }
+
+  .fragment-icon {
+    font-size: 1.8rem;
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+  .fragment-title {
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    color: var(--sepia);
+    margin-bottom: 0.5rem;
+  }
+  .fragment-desc {
+    font-size: 0.7rem;
+    color: var(--ash);
+    line-height: 1.8;
+  }
+  .fragment-badge {
+    position: absolute;
+    top: 0.8rem;
+    right: 0.8rem;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid currentColor;
+  }
+  .badge-truth { color: var(--truth); border-color: var(--truth); }
+  .badge-placed { color: var(--restored); border-color: var(--restored); }
+
+  /* ── Slots ── */
+  .slots-section {
+    animation: fadeDown 0.8s 0.8s ease both;
+    opacity: 0;
+  }
+
+  .slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .slot {
+    border: 1px dashed rgba(196,168,130,0.25);
+    min-height: 90px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 1rem;
+    position: relative;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .slot:hover:not(.filled) {
+    border-color: var(--glow);
+    background: rgba(240,192,96,0.04);
+  }
+  .slot.filled {
+    border-style: solid;
+    border-color: var(--restored);
+    background: rgba(74,124,89,0.06);
+    cursor: default;
+  }
+  .slot.truth-slot.filled {
+    border-color: var(--truth);
+    background: rgba(192,57,43,0.06);
+  }
+  .slot-hint {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: rgba(107,98,88,0.6);
+    text-align: center;
+    line-height: 1.8;
+  }
+  .slot-content {
+    font-size: 1.4rem;
+    margin-bottom: 0.3rem;
+  }
+  .slot-label {
+    font-size: 0.65rem;
+    color: var(--sepia);
+    letter-spacing: 0.1em;
+    text-align: center;
+  }
+
+  /* ── Action buttons ── */
+  .actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    animation: fadeDown 0.8s 1s ease both;
+    opacity: 0;
+  }
+
+  .btn {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    padding: 0.8rem 2rem;
+    border: 1px solid;
+    cursor: pointer;
+    background: none;
+    transition: all 0.3s;
+  }
+  .btn-restore {
+    border-color: var(--sepia);
+    color: var(--fog);
+  }
+  .btn-restore:hover {
+    background: var(--sepia);
+    color: var(--ink);
+  }
+  .btn-restore:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .btn-forget {
+    border-color: rgba(192,57,43,0.5);
+    color: rgba(192,57,43,0.8);
+  }
+  .btn-forget:hover {
+    background: rgba(192,57,43,0.15);
+    border-color: var(--truth);
+    color: var(--truth);
+  }
+  .btn-forget:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  /* ── Message Log ── */
+  .message-log {
+    margin-top: 2rem;
+    border-top: 1px solid rgba(196,168,130,0.12);
+    padding-top: 1.5rem;
+    animation: fadeDown 0.8s 1.2s ease both;
+    opacity: 0;
+  }
+
+  .log-entry {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    line-height: 2;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(196,168,130,0.06);
+    animation: logSlide 0.5s ease both;
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+  }
+  @keyframes logSlide {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .log-time {
+    font-family: 'Cormorant Garamond', serif;
+    color: var(--ash);
+    min-width: 50px;
+    font-style: italic;
+  }
+  .log-msg { color: rgba(232,224,212,0.7); }
+  .log-msg.truth-msg { color: rgba(192,57,43,0.8); }
+  .log-msg.restore-msg { color: rgba(74,124,89,0.9); }
+
+  /* ── Ending Screen ── */
+  #ending-screen {
+    position: fixed;
+    inset: 0;
+    background: #060504;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 1.5s ease, visibility 1.5s;
+    padding: 2rem;
+  }
+  #ending-screen.visible {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .ending-icon { font-size: 4rem; margin-bottom: 2rem; }
+  .ending-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: clamp(1.8rem, 5vw, 3rem);
+    font-style: italic;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+  .ending-title.good { color: var(--glow); }
+  .ending-title.truth { color: var(--truth); }
+  .ending-title.mixed { color: var(--sepia); }
+
+  .ending-text {
+    font-size: 0.85rem;
+    line-height: 2.4;
+    letter-spacing: 0.08em;
+    max-width: 480px;
+    text-align: center;
+    color: rgba(232,224,212,0.7);
+    margin-bottom: 3rem;
+  }
+
+  .btn-replay {
+    font-family: 'Noto Serif JP', serif;
+    font-size: 0.75rem;
+    letter-spacing: 0.25em;
+    padding: 0.9rem 2.5rem;
+    border: 1px solid var(--sepia);
+    color: var(--fog);
+    background: none;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .btn-replay:hover { background: var(--sepia); color: var(--ink); }
+
+  /* Escher-like background decoration */
+  .world-deco {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .staircase {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0.04;
+    background:
+      repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 20px,
+        rgba(196,168,130,0.5) 20px,
+        rgba(196,168,130,0.5) 21px
+      ),
+      repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 20px,
+        rgba(196,168,130,0.3) 20px,
+        rgba(196,168,130,0.3) 21px
+      );
+    transition: opacity 2s ease;
+  }
+  .staircase.vivid { opacity: 0.12; }
+</style>
+</head>
+<body>
+
+<!-- ══ TITLE SCREEN ══ -->
+<div id="title-screen">
+  <div class="title-symbol">🪞</div>
+  <h1 class="title-jp">記憶の修復屋</h1>
+  <p class="title-en">Memory Restorer</p>
+  <p class="title-desc">
+    あなたは「記憶の修復士」です。<br>
+    バラバラになった他人の記憶の世界へ入り込み、<br>
+    失われた断片を正しい場所に還してください。<br><br>
+    ただし——修復を進めるうちに、<br>
+    その人が「忘れたかった真実」が姿を現します。
+  </p>
+  <button class="btn-start" onclick="startGame()">修復を開始する</button>
+</div>
+
+<!-- ══ GAME ══ -->
+<div id="game">
+  <div class="game-header">
+    <div>
+      <div style="font-size:0.65rem;letter-spacing:0.25em;color:var(--ash);margin-bottom:0.3rem">CASE NO. 0047</div>
+      <div class="patient-name">Haruto Saito, age 34</div>
+    </div>
+    <div class="case-info">
+      修復度: <span id="pct">0</span>%<br>
+      隠蔽された真実: <span id="truth-count">未検出</span><br>
+      <span style="color:rgba(107,98,88,0.5)">2031.08.14 — 記憶崩壊日</span>
+    </div>
+  </div>
+
+  <div class="progress-track">
+    <span class="progress-label">修復進捗</span>
+    <div class="progress-fill" id="progress-fill"></div>
+  </div>
+
+  <!-- Memory World -->
+  <div class="memory-world">
+    <div class="world-deco">
+      <div class="staircase" id="staircase"></div>
+    </div>
+    <div class="truth-overlay" id="truth-overlay"></div>
+    <!-- Particles -->
+    <div id="particles"></div>
+
+    <div class="world-scene">
+      <p class="scene-text" id="scene-text">
+        灰色の空間が広がっている。<br>
+        どこからか子どもの笑い声が聞こえるが、<br>
+        その輪郭はぼんやりと霞んで、触れることができない。
+      </p>
+    </div>
+  </div>
+
+  <!-- Fragments -->
+  <div class="fragments-section">
+    <div class="section-label">思い出の断片 — MEMORY FRAGMENTS</div>
+    <div class="fragments-grid" id="fragments-grid"></div>
+  </div>
+
+  <!-- Slots -->
+  <div class="slots-section">
+    <div class="section-label">記憶の座標 — PLACEMENT SLOTS</div>
+    <div class="slots-grid" id="slots-grid"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-restore" id="btn-restore" onclick="restoreSelected()" disabled>
+      断片を修復する
+    </button>
+    <button class="btn btn-forget" id="btn-forget" onclick="forgetTruth()" disabled>
+      真実を封印する
+    </button>
+  </div>
+
+  <!-- Log -->
+  <div class="message-log" id="message-log">
+    <div class="section-label">修復ログ — RESTORATION LOG</div>
+    <div id="log-entries"></div>
+  </div>
+</div>
+
+<!-- ══ ENDING ══ -->
+<div id="ending-screen">
+  <div class="ending-icon" id="ending-icon"></div>
+  <h2 class="ending-title" id="ending-title"></h2>
+  <p class="ending-text" id="ending-text"></p>
+  <button class="btn-replay" onclick="location.reload()">別の記憶を修復する</button>
+</div>
+
+<script>
+// ══════════════════════════════════
+// DATA
+// ══════════════════════════════════
+const FRAGMENTS = [
+  {
+    id: 'f1', icon: '📸', title: '七歳の誕生日',
+    desc: '父と撮った写真。笑顔があふれている。',
+    type: 'normal', slotId: 's1'
+  },
+  {
+    id: 'f2', icon: '🎵', title: '母の子守唄',
+    desc: '夕暮れに流れていた懐かしい旋律。',
+    type: 'normal', slotId: 's2'
+  },
+  {
+    id: 'f3', icon: '🌸', title: '公園の桜',
+    desc: '家族で花見をした春の午後。',
+    type: 'normal', slotId: 's3'
+  },
+  {
+    id: 'f4', icon: '📝', title: '最後の手紙',
+    desc: '父から届いた短い手紙。文字が震えている。',
+    type: 'truth', slotId: 's4'
+  },
+  {
+    id: 'f5', icon: '🏠', title: '実家の縁側',
+    desc: '夏の夜、家族が並んで座った場所。',
+    type: 'normal', slotId: 's5'
+  },
+  {
+    id: 'f6', icon: '💔', title: '空の部屋',
+    desc: 'ある日突然、父の荷物だけが消えていた。',
+    type: 'truth', slotId: 's6'
+  }
+];
+
+const SLOTS = [
+  { id: 's1', hint: '幼少期の喜び\nをここに', type: 'normal' },
+  { id: 's2', hint: '音の記憶\nをここに', type: 'normal' },
+  { id: 's3', hint: '季節の断片\nをここに', type: 'normal' },
+  { id: 's4', hint: '言葉の痕跡\nをここに', type: 'truth' },
+  { id: 's5', hint: '場所の記憶\nをここに', type: 'normal' },
+  { id: 's6', hint: '欠落の形跡\nをここに', type: 'truth' },
+];
+
+const SCENES = [
+  { threshold: 0, text: '灰色の空間が広がっている。\nどこからか子どもの笑い声が聞こえるが、\nその輪郭はぼんやりと霞んで、触れることができない。' },
+  { threshold: 20, text: '光の粒が空間を漂い始めた。\n遠くに家の輪郭が見える——\nまだ霞んでいるが、確かに存在している。' },
+  { threshold: 40, text: '色が戻ってきた。桜の薄紅、縁側の木の温もり。\n懐かしい匂いが漂い、\n記憶の道筋が少しずつ繋がり始める。' },
+  { threshold: 60, text: '景色がはっきりと輪郭を持ち始めた。\nしかし——その奥に、\n暗い部屋の影が見え隠れしている。' },
+  { threshold: 80, text: '家族の姿が立ち現れた。\n笑い声、温もり、そして……\n父の椅子だけが空の部屋。\nすべての真実が姿を現そうとしている。' },
+  { threshold: 100, text: 'すべての断片が還った。\n記憶の中で、家族は笑っている。\n父の不在さえも、この人の一部として。' },
+];
+
+// ══════════════════════════════════
+// STATE
+// ══════════════════════════════════
+let state = {
+  selectedFragment: null,
+  placedFragments: [],
+  forgottenTruths: [],
+  logTime: 0
+};
+
+// ══════════════════════════════════
+// INIT
+// ══════════════════════════════════
+function startGame() {
+  document.getElementById('title-screen').classList.add('hidden');
+  document.getElementById('game').classList.add('active');
+  renderFragments();
+  renderSlots();
+  spawnParticles();
+  addLog('修復作業を開始しました。', 'normal');
+}
+
+function renderFragments() {
+  const grid = document.getElementById('fragments-grid');
+  grid.innerHTML = FRAGMENTS.map(f => `
+    <div class="fragment-card ${f.type === 'truth' ? 'truth-fragment' : ''}"
+         id="card-${f.id}"
+         onclick="selectFragment('${f.id}')">
+      <span class="fragment-icon">${f.icon}</span>
+      <div class="fragment-title">${f.title}</div>
+      <div class="fragment-desc">${f.desc}</div>
+      ${f.type === 'truth' ? '<span class="fragment-badge badge-truth">真実</span>' : ''}
+    </div>
+  `).join('');
+}
+
+function renderSlots() {
+  const grid = document.getElementById('slots-grid');
+  grid.innerHTML = SLOTS.map(s => `
+    <div class="slot ${s.type === 'truth' ? 'truth-slot' : ''}"
+         id="slot-${s.id}"
+         onclick="placeInSlot('${s.id}')">
+      <div class="slot-hint">${s.hint}</div>
+    </div>
+  `).join('');
+}
+
+function spawnParticles() {
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.cssText = `
+      left: ${Math.random() * 100}%;
+      bottom: ${Math.random() * 40}%;
+      animation-duration: ${4 + Math.random() * 8}s;
+      animation-delay: ${Math.random() * 8}s;
+      width: ${1 + Math.random() * 2}px;
+      height: ${1 + Math.random() * 2}px;
+      opacity: 0;
+    `;
+    container.appendChild(p);
+  }
+}
+
+// ══════════════════════════════════
+// INTERACTION
+// ══════════════════════════════════
+function selectFragment(id) {
+  const fragment = FRAGMENTS.find(f => f.id === id);
+  if (!fragment) return;
+  if (state.placedFragments.includes(id)) return;
+  if (state.forgottenTruths.includes(id)) return;
+
+  // Deselect previous
+  document.querySelectorAll('.fragment-card.selected')
+    .forEach(c => c.classList.remove('selected'));
+
+  state.selectedFragment = id;
+  document.getElementById(`card-${id}`).classList.add('selected');
+
+  const isRestored = fragment.type !== 'truth';
+  const isTruth = fragment.type === 'truth';
+
+  document.getElementById('btn-restore').disabled = false;
+  document.getElementById('btn-forget').disabled = !isTruth;
+
+  addLog(`「${fragment.title}」を手に取った。`, 'normal');
+}
+
+function placeInSlot(slotId) {
+  if (!state.selectedFragment) {
+    addLog('先に断片を選択してください。', 'normal');
+    return;
+  }
+  const fragment = FRAGMENTS.find(f => f.id === state.selectedFragment);
+  if (!fragment) return;
+
+  // Check if correct slot
+  if (fragment.slotId !== slotId) {
+    addLog(`「${fragment.title}」はこの座標には合わない……`, 'normal');
+    return;
+  }
+
+  placeFragment(fragment, slotId);
+}
+
+function restoreSelected() {
+  if (!state.selectedFragment) return;
+  const fragment = FRAGMENTS.find(f => f.id === state.selectedFragment);
+  if (!fragment) return;
+  placeFragment(fragment, fragment.slotId);
+}
+
+function placeFragment(fragment, slotId) {
+  state.placedFragments.push(fragment.id);
+  state.selectedFragment = null;
+
+  // Update card
+  const card = document.getElementById(`card-${fragment.id}`);
+  card.classList.add('placed');
+  card.classList.remove('selected');
+  card.innerHTML += '<span class="fragment-badge badge-placed">配置済</span>';
+
+  // Update slot
+  const slot = document.getElementById(`slot-${slotId}`);
+  slot.classList.add('filled');
+  if (fragment.type === 'truth') slot.classList.add('truth-slot');
+  slot.innerHTML = `
+    <div class="slot-content">${fragment.icon}</div>
+    <div class="slot-label">${fragment.title}</div>
+  `;
+
+  document.getElementById('btn-restore').disabled = true;
+  document.getElementById('btn-forget').disabled = true;
+
+  const isTruth = fragment.type === 'truth';
+  if (isTruth) {
+    addLog(`真実「${fragment.title}」が記憶の中に刻まれた。`, 'truth');
+    document.getElementById('truth-overlay').classList.add('visible');
+  } else {
+    addLog(`「${fragment.title}」が正しい場所に還った。`, 'restore');
+  }
+
+  updateProgress();
+}
+
+function forgetTruth() {
+  if (!state.selectedFragment) return;
+  const fragment = FRAGMENTS.find(f => f.id === state.selectedFragment);
+  if (!fragment || fragment.type !== 'truth') return;
+
+  state.forgottenTruths.push(fragment.id);
+  state.selectedFragment = null;
+
+  // Grey out card
+  const card = document.getElementById(`card-${fragment.id}`);
+  card.style.opacity = '0.25';
+  card.style.pointerEvents = 'none';
+  card.classList.remove('selected');
+  card.querySelector('.fragment-badge').textContent = '封印';
+  card.querySelector('.fragment-badge').style.color = 'var(--ash)';
+  card.querySelector('.fragment-badge').style.borderColor = 'var(--ash)';
+
+  document.getElementById('btn-restore').disabled = true;
+  document.getElementById('btn-forget').disabled = true;
+
+  addLog(`「${fragment.title}」——この真実は、永遠に封印された。`, 'truth');
+  updateProgress();
+}
+
+// ══════════════════════════════════
+// PROGRESS
+// ══════════════════════════════════
+function updateProgress() {
+  const total = FRAGMENTS.length;
+  const done = state.placedFragments.length + state.forgottenTruths.length;
+  const restored = state.placedFragments.length;
+  const pct = Math.round((done / total) * 100);
+
+  document.getElementById('pct').textContent = Math.round((restored / total) * 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+
+  const truths = state.placedFragments.filter(id => FRAGMENTS.find(f => f.id === id && f.type === 'truth'));
+  const truthCount = truths.length + state.forgottenTruths.length;
+  document.getElementById('truth-count').textContent =
+    truthCount === 0 ? '未検出' :
+    state.forgottenTruths.length > 0 ? `${state.forgottenTruths.length}件 封印済` :
+    `${truths.length}件 露出`;
+
+  updateScene(Math.round((restored / total) * 100));
+
+  if (done === total) {
+    setTimeout(() => showEnding(), 1800);
+  }
+}
+
+function updateScene(pct) {
+  let scene = SCENES[0];
+  for (const s of SCENES) {
+    if (pct >= s.threshold) scene = s;
+  }
+  const el = document.getElementById('scene-text');
+  el.innerHTML = scene.text.replace(/\n/g, '<br>');
+  if (pct > 30) el.classList.add('vivid');
+  if (pct > 30) document.getElementById('staircase').classList.add('vivid');
+}
+
+// ══════════════════════════════════
+// LOG
+// ══════════════════════════════════
+function addLog(msg, type = 'normal') {
+  state.logTime += Math.floor(Math.random() * 3) + 1;
+  const t = String(state.logTime).padStart(2, '0') + ':' + String(Math.floor(Math.random() * 60)).padStart(2, '0');
+  const container = document.getElementById('log-entries');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `
+    <span class="log-time">${t}</span>
+    <span class="log-msg ${type === 'truth' ? 'truth-msg' : type === 'restore' ? 'restore-msg' : ''}">${msg}</span>
+  `;
+  container.prepend(entry);
+  // Keep max 8
+  while (container.children.length > 8) container.removeChild(container.lastChild);
+}
+
+// ══════════════════════════════════
+// ENDING
+// ══════════════════════════════════
+function showEnding() {
+  const restored = state.placedFragments.length;
+  const forgotten = state.forgottenTruths.length;
+  const truths = state.placedFragments.filter(id => FRAGMENTS.find(f => f.id === id && f.type === 'truth'));
+
+  let ending;
+
+  if (forgotten > 0 && truths.length === 0) {
+    ending = {
+      icon: '🌫️',
+      type: 'mixed',
+      title: '慈悲の修復',
+      text: 'あなたは真実を封印し、この人の記憶を守りました。\n\n人は時に、真実よりも美しい嘘を必要とします。\nあなたの選択は、優しさでしたか——\nそれとも、ただの逃避でしたか。\n\nその問いを胸に抱いたまま、次の記憶へ。'
+    };
+  } else if (truths.length > 0 && forgotten === 0) {
+    ending = {
+      icon: '🪞',
+      type: 'truth',
+      title: '完全な修復',
+      text: 'すべての真実が、記憶の中に還りました。\n\n父の不在、手紙の震える文字、空の部屋——\nHarutoはいつか、この記憶の前に立ち、\n泣くかもしれない。でも、それが彼自身の物語。\n\n修復士よ。あなたは正しい仕事をした。'
+    };
+  } else {
+    ending = {
+      icon: '🌸',
+      type: 'good',
+      title: '不完全な平和',
+      text: 'あなたは美しい記憶を丁寧に並べ、\nいくつかの真実には目を瞑りました。\n\n人の記憶とは、こんなものかもしれません——\n覚えていたいものだけを、光の中に置いておく。\n\n次の修復士が、残りを引き継ぐでしょう。'
+    };
+  }
+
+  const screen = document.getElementById('ending-screen');
+  document.getElementById('ending-icon').textContent = ending.icon;
+  document.getElementById('ending-title').textContent = ending.title;
+  document.getElementById('ending-title').className = `ending-title ${ending.type}`;
+  document.getElementById('ending-text').innerHTML = ending.text.replace(/\n/g, '<br>');
+  screen.classList.add('visible');
+}
+</script>
+</body>
+</html>
